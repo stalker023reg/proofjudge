@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ProofJudge — Trustless Work Verification on GenLayer</title>
+  <meta name="description" content="Trustless verification of human-defined work agreements using GenLayer's AI-validator consensus. Create bounties, submit evidence, and receive on-chain verdicts." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <!-- ═══════════════════ HEADER ═══════════════════ -->
+  <header id="app-header">
+    <div class="header-inner">
+      <a href="#" class="logo" id="logo-link">
+        <span class="logo-icon">⚖</span>
+        <span class="logo-text">Proof<span class="logo-accent">Judge</span></span>
+      </a>
+      <nav class="header-nav" id="main-nav">
+        <button class="nav-btn active" data-view="dashboard" id="nav-dashboard">Dashboard</button>
+        <button class="nav-btn" data-view="create" id="nav-create">Create Agreement</button>
+        <button class="nav-btn" data-view="submit" id="nav-submit">Submit Work</button>
+      </nav>
+      <div class="header-right">
+        <div class="network-badge" id="network-badge">
+          <span class="network-dot"></span>
+          <span id="network-name">Connecting…</span>
+        </div>
+        <button class="connect-btn" id="connect-wallet-btn">Connect Wallet</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══════════════════ HERO / STATUS ═══════════════════ -->
+  <section class="hero" id="hero-section">
+    <div class="hero-bg-glow"></div>
+    <div class="hero-content">
+      <h1 class="hero-title">
+        Trustless <span class="gradient-text">Work Verification</span>
+      </h1>
+      <p class="hero-subtitle">
+        Create natural language work agreements. Submit evidence. Receive <strong>on-chain AI-validated verdicts</strong> powered by GenLayer.
+      </p>
+      <div class="hero-stats" id="hero-stats">
+        <div class="stat-card">
+          <span class="stat-value" id="stat-total">—</span>
+          <span class="stat-label">Total Agreements</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="stat-approved">—</span>
+          <span class="stat-label">Approved</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="stat-open">—</span>
+          <span class="stat-label">Open</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ MAIN VIEWS ═══════════════════ -->
+  <main id="app-main">
+
+    <!-- ─── Dashboard View ─── -->
+    <section class="view active" id="view-dashboard">
+      <div class="section-header">
+        <h2>Agreements <span class="badge" id="agreements-count-badge">0</span></h2>
+        <div class="section-actions">
+          <select id="filter-status" class="filter-select">
+            <option value="ALL">All Statuses</option>
+            <option value="OPEN">Open</option>
+            <option value="SUBMITTED">Submitted</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="INSUFFICIENT_EVIDENCE">Insufficient Evidence</option>
+          </select>
+          <button class="icon-btn" id="refresh-btn" title="Refresh">↻</button>
+        </div>
+      </div>
+      <div class="agreements-grid" id="agreements-grid">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-icon">📋</div>
+          <p>No agreements yet.</p>
+          <p class="empty-hint">Create one to get started!</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Create Agreement View ─── -->
+    <section class="view" id="view-create">
+      <div class="form-container">
+        <div class="form-header">
+          <h2>📝 Create Work Agreement</h2>
+          <p class="form-subtitle">Define clear requirements. Validators will use AI to evaluate submitted evidence against these criteria.</p>
+        </div>
+        <form id="create-form" autocomplete="off">
+          <div class="form-group">
+            <label for="create-title">Agreement Title</label>
+            <input type="text" id="create-title" placeholder="e.g., Build a Landing Page" required maxlength="200" />
+          </div>
+          <div class="form-group">
+            <label for="create-description">Description</label>
+            <textarea id="create-description" placeholder="Describe the work to be done in detail…" rows="3" maxlength="1000"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Requirements <span class="label-hint">(one per line — each becomes a verification criterion)</span></label>
+            <div class="requirements-editor" id="requirements-editor">
+              <div class="req-row">
+                <span class="req-number">1.</span>
+                <input type="text" class="req-input" placeholder="e.g., Responsive design across all devices" />
+                <button type="button" class="req-remove" title="Remove">×</button>
+              </div>
+            </div>
+            <button type="button" class="add-req-btn" id="add-requirement-btn">+ Add Requirement</button>
+          </div>
+          <div class="form-group">
+            <label for="create-deadline">Deadline (hours from now)</label>
+            <input type="number" id="create-deadline" min="1" max="8760" value="48" required />
+          </div>
+          <button type="submit" class="primary-btn" id="create-submit-btn">
+            <span class="btn-text">Create Agreement</span>
+            <span class="btn-loader" hidden></span>
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ─── Submit Work View ─── -->
+    <section class="view" id="view-submit">
+      <div class="form-container">
+        <div class="form-header">
+          <h2>🔗 Submit Work Evidence</h2>
+          <p class="form-subtitle">Provide publicly accessible URLs as proof. GenLayer validators will independently inspect your evidence.</p>
+        </div>
+        <form id="submit-form" autocomplete="off">
+          <div class="form-group">
+            <label for="submit-agreement-id">Agreement ID</label>
+            <input type="number" id="submit-agreement-id" min="0" placeholder="0" required />
+          </div>
+          <div class="form-group">
+            <label for="submit-evidence-url">Evidence URL <span class="label-hint">(deployed site or artifact)</span></label>
+            <input type="url" id="submit-evidence-url" placeholder="https://my-site.vercel.app" required />
+          </div>
+          <div class="form-group">
+            <label for="submit-github-url">GitHub URL <span class="label-hint">(optional)</span></label>
+            <input type="url" id="submit-github-url" placeholder="https://github.com/user/repo" />
+          </div>
+          <div class="form-group">
+            <label for="submit-explanation">Explanation</label>
+            <textarea id="submit-explanation" placeholder="Briefly describe what you built and how it meets each requirement…" rows="4" maxlength="2000"></textarea>
+          </div>
+          <button type="submit" class="primary-btn" id="submit-work-btn">
+            <span class="btn-text">Submit Evidence</span>
+            <span class="btn-loader" hidden></span>
+          </button>
+        </form>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ═══════════════════ AGREEMENT DETAIL MODAL ═══════════════════ -->
+  <div class="modal-overlay" id="agreement-modal" hidden>
+    <div class="modal-content" id="agreement-modal-content">
+      <button class="modal-close" id="modal-close-btn">×</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ TOAST CONTAINER ═══════════════════ -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# ProofJudge — GenLayer Test Configuration
+# Used by genlayer-test (pytest) for contract testing
+
+networks:
+  default: localnet
+  localnet:
+    url: http://127.0.0.1:4000/api
+
+paths:
+  contracts: contracts
+  artifacts: artifacts
