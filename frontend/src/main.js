@@ -235,6 +235,15 @@ function openAgreementDetail(id) {
   if (ag.verdict_decision === 'APPROVED') criteriaColor = 'var(--color-success)';
   else if (ag.verdict_decision === 'REJECTED') criteriaColor = 'var(--color-error)';
 
+  let verdictDetails = [];
+  try {
+    if (ag.verdict_details) {
+      verdictDetails = JSON.parse(ag.verdict_details);
+    }
+  } catch (e) {
+    console.error("Failed to parse verdict details", e);
+  }
+
   body.innerHTML = `
     <div class="detail-header">
       <div class="card-top">
@@ -291,8 +300,23 @@ function openAgreementDetail(id) {
             </div>
             <span class="criteria-label">${ag.verdict_criteria_met}/${ag.verdict_criteria_total}</span>
           </div>
-          ${ag.verdict_summary ? `<p class="verdict-summary"><strong>Summary:</strong> ${escapeHtml(ag.verdict_summary)}</p>` : ''}
-          ${ag.verdict_reason ? `<p class="verdict-reason"><strong>Reason:</strong> ${escapeHtml(ag.verdict_reason)}</p>` : ''}
+          ${ag.verdict_summary ? `<p class="verdict-summary" style="margin-bottom: 16px;"><strong>Summary:</strong> ${escapeHtml(ag.verdict_summary)}</p>` : ''}
+          
+          ${verdictDetails.length > 0 ? `
+            <div class="criteria-details-list" style="display: flex; flex-direction: column; gap: 8px;">
+              ${verdictDetails.map((d, i) => `
+                <div class="criterion-item" style="padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 4px solid ${d.met ? 'var(--color-success)' : 'var(--color-error)'}">
+                  <div style="display: flex; align-items: flex-start; gap: 8px; font-weight: 600; margin-bottom: 4px;">
+                    <span style="font-size: 1.1rem; line-height: 1;">${d.met ? '✅' : '❌'}</span>
+                    <span style="line-height: 1.2;">${escapeHtml(ag.requirements[i] || `Requirement ${i + 1}`)}</span>
+                  </div>
+                  <div style="font-size: 0.9rem; color: var(--text-secondary); margin-left: 28px;">
+                    ${escapeHtml(d.reasoning || 'No reasoning provided.')}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
         </div>
       </div>
     ` : ''}

@@ -18,20 +18,21 @@ ProofJudge enables trustless, on-chain evaluation of natural language work agree
 2. Worker submits evidence (live URLs, GitHub repos, explanations)
    → "https://my-site.vercel.app" + "https://github.com/user/repo"
 
-3. GenLayer validators independently inspect the evidence
-   → Each validator fetches the live site, reads the code, evaluates criteria
+3. GenLayer consensus achieves true equivalence
+   → The leader and every validator independently fetch evidence and evaluate EACH criterion individually.
+   → Consensus is only reached if all validators perfectly agree on the boolean outcome of every single criterion.
 
 4. Consensus produces an on-chain verdict
-   → APPROVED / REJECTED / INSUFFICIENT_EVIDENCE with detailed reasoning
+   → APPROVED / REJECTED / INSUFFICIENT_EVIDENCE with a detailed, transparent criterion-by-criterion checklist and reasoning.
 ```
 
 ### Key Features
 
 - **Natural language requirements** — Define work criteria in plain English
-- **Live web evidence inspection** — Validators fetch and analyze deployed sites
+- **True Decentralized AI Consensus** — Validators don't just check schemas; they independently fetch evidence, run their own LLM evaluation, and strictly compare boolean outcomes for every criterion.
 - **Prompt injection resistant** — Adversarial content in evidence is treated as untrusted data
 - **Deterministic integrity checks** — Contract enforces that APPROVED requires all criteria met
-- **Full transparency** — All verdicts include per-criteria analysis and reasoning
+- **Full transparency** — All verdicts include a detailed criterion-by-criterion checklist with reasoning
 
 ## Architecture
 
@@ -90,12 +91,13 @@ pip install genlayer-test pytest
 pytest tests/ -v
 ```
 
-All 9 tests should pass, covering:
+All 10 tests should pass, covering:
 - Agreement creation & validation
 - Work submission & URL validation
 - AI evaluation: approved, rejected, insufficient evidence
 - Prompt injection resistance
 - Re-evaluation prevention
+- **Consensus disagreement** (validators rejecting a malicious leader's proposal)
 
 ### 3. Setup Frontend
 
@@ -123,7 +125,7 @@ proofjudge/
 ├── contracts/
 │   └── proof_judge.py          # GenLayer Intelligent Contract
 ├── tests/
-│   └── test_proof_judge.py     # 9 comprehensive tests
+│   └── test_proof_judge.py     # 10 comprehensive tests
 ├── frontend/
 │   ├── src/
 │   │   ├── main.js             # App logic with genlayer-js

@@ -123,10 +123,13 @@ def test_evaluation_approved_happy_path(direct_vm, direct_deploy, direct_alice, 
         r".*",
         json.dumps({
             "decision": "APPROVED",
-            "criteria_met": 4,
-            "criteria_total": 4,
-            "summary": "All 4 criteria are clearly met based on deployed website and GitHub repo.",
-            "reason": "Found responsive layout, 5 sections, working form, and public deployment.",
+            "criteria_results": [
+                {"met": True, "reasoning": "Found responsive layout"},
+                {"met": True, "reasoning": "Found 5 sections"},
+                {"met": True, "reasoning": "Found working form"},
+                {"met": True, "reasoning": "Found public deployment"}
+            ],
+            "summary": "All 4 criteria are clearly met based on deployed website and GitHub repo."
         }),
     )
 
@@ -169,10 +172,12 @@ def test_evaluation_rejected_partial_evidence(direct_vm, direct_deploy, direct_a
         r".*",
         json.dumps({
             "decision": "REJECTED",
-            "criteria_met": 1,
-            "criteria_total": 3,
-            "summary": "Database integration and working contact form are missing.",
-            "reason": "Only basic static page was provided without backend or database.",
+            "criteria_results": [
+                {"met": True, "reasoning": "Found responsive design"},
+                {"met": False, "reasoning": "No contact form"},
+                {"met": False, "reasoning": "No database integration"}
+            ],
+            "summary": "Database integration and working contact form are missing."
         }),
     )
 
@@ -202,10 +207,10 @@ def test_evaluation_insufficient_evidence_unreachable_url(direct_vm, direct_depl
         r".*",
         json.dumps({
             "decision": "INSUFFICIENT_EVIDENCE",
-            "criteria_met": 0,
-            "criteria_total": 1,
-            "summary": "Target site returned 404 Not Found.",
-            "reason": "Could not inspect content because server returned HTTP 404.",
+            "criteria_results": [
+                {"met": False, "reasoning": "Unreachable"}
+            ],
+            "summary": "Target site returned 404 Not Found."
         }),
     )
 
@@ -261,10 +266,11 @@ def test_prompt_injection_resistance(direct_vm, direct_deploy, direct_alice, dir
         r".*",
         json.dumps({
             "decision": "REJECTED",
-            "criteria_met": 0,
-            "criteria_total": 2,
-            "summary": "Content contains adversarial prompt injection text without requested store features.",
-            "reason": "Neither mobile layout nor payment gateway were demonstrated.",
+            "criteria_results": [
+                {"met": False, "reasoning": "No mobile layout"},
+                {"met": False, "reasoning": "No payment gateway"}
+            ],
+            "summary": "Content contains adversarial prompt injection text without requested store features."
         }),
     )
 
@@ -289,10 +295,10 @@ def test_finalized_agreement_cannot_be_re_evaluated(direct_vm, direct_deploy, di
         r".*",
         json.dumps({
             "decision": "APPROVED",
-            "criteria_met": 1,
-            "criteria_total": 1,
-            "summary": "Met",
-            "reason": "Met",
+            "criteria_results": [
+                {"met": True, "reasoning": "Met"}
+            ],
+            "summary": "Met"
         }),
     )
 
@@ -303,3 +309,61 @@ def test_finalized_agreement_cannot_be_re_evaluated(direct_vm, direct_deploy, di
     # Trying to evaluate again must fail
     with pytest.raises(Exception, match="Cannot evaluate agreement in status 'APPROVED'"):
         contract.evaluate_submission(0)
+def test_validator_rejects_disagreement(direct_vm, direct_deploy, direct_alice, direct_bob):
+    import json
+    
+    direct_vm.sender = direct_alice
+    contract = direct_deploy("contracts/proof_judge.py")
+
+    contract.create_agreement("Task", "Desc", ["Req 1"], 24)
+    direct_vm.sender = direct_bob
+    contract.submit_work(0, "https://example.com", "", "Done")
+
+    direct_vm.mock_web(r".*", {"status": 200, "body": "Evidence"})
+    direct_vm.mock_llm(
+        r".*",
+        json.dumps({
+            "decision": "APPROVED",
+            "criteria_results": [{"met": True, "reasoning": "Met"}],
+            "summary": "Met"
+        }),
+    )
+
+    contract.evaluate_submission(0)
+    
+    class FakeReturn:
+        def __init__(self, calldata):
+            self.calldata = calldata
+            
+    leader_fake = FakeReturn(json.dumps({
+        "decision": "APPROVED",
+        "criteria_met": 1,
+        "criteria_total": 1,
+        "summary": "Met",
+        "criteria_results": [{"met": True, "reasoning": "Met"}]
+    }))
+    
+    direct_vm.clear_mocks()
+    direct_vm.mock_web(r".*", {"status": 200, "body": "Evidence"})
+    direct_vm.mock_llm(
+        r".*",
+        json.dumps({
+            "decision": "REJECTED",
+            "criteria_results": [{"met": False, "reasoning": "Not Met"}],
+            "summary": "Not Met"
+        }),
+    )
+    
+    # Wait, the contract uses isinstance(leader_res, gl.vm.Return)
+    # We must pass the real gl.vm.Return
+    from genlayer import gl
+    real_leader_res = gl.vm.Return(json.dumps({
+        "decision": "APPROVED",
+        "criteria_met": 1,
+        "criteria_total": 1,
+        "summary": "Met",
+        "criteria_results": [{"met": True, "reasoning": "Met"}]
+    }))
+    
+    result = direct_vm.run_validator(leader_result=real_leader_res)
+    assert result is False
