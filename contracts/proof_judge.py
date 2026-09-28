@@ -25,7 +25,6 @@ class Agreement:
     verdict_summary: str
     verdict_criteria_met: i32
     verdict_criteria_total: i32
-    verdict_reason: str
     verdict_details: str
     created_at: u256
     submitted_at: u256
@@ -76,7 +75,6 @@ class ProofJudge(gl.Contract):
             verdict_summary="",
             verdict_criteria_met=i32(0),
             verdict_criteria_total=i32(len(requirements)),
-            verdict_reason="",
             verdict_details="",
             created_at=now,
             submitted_at=u256(0),
@@ -151,11 +149,14 @@ class ProofJudge(gl.Contract):
             fetch_error = False
             try:
                 web_resp = gl.nondet.web.get(evidence_url)
-                if web_resp.status_code == 200:
-                    raw_body = web_resp.body.decode("utf-8", errors="ignore")
+                if web_resp.status == 200:
+                    if isinstance(web_resp.body, bytes):
+                        raw_body = web_resp.body.decode("utf-8", errors="ignore")
+                    else:
+                        raw_body = str(web_resp.body)
                     web_content = raw_body[:3500]
                 else:
-                    web_content = f"HTTP Error status {web_resp.status_code}"
+                    web_content = f"HTTP Error status {web_resp.status}"
                     fetch_error = True
             except Exception as e:
                 web_content = f"Failed to retrieve web evidence: {str(e)}"
@@ -166,11 +167,14 @@ class ProofJudge(gl.Contract):
             if len(github_url) > 0:
                 try:
                     gh_resp = gl.nondet.web.get(github_url)
-                    if gh_resp.status_code == 200:
-                        gh_raw = gh_resp.body.decode("utf-8", errors="ignore")
+                    if gh_resp.status == 200:
+                        if isinstance(gh_resp.body, bytes):
+                            gh_raw = gh_resp.body.decode("utf-8", errors="ignore")
+                        else:
+                            gh_raw = str(gh_resp.body)
                         github_content = gh_raw[:2500]
                     else:
-                        github_content = f"GitHub HTTP status {gh_resp.status_code}"
+                        github_content = f"GitHub HTTP status {gh_resp.status}"
                 except Exception as e:
                     github_content = f"GitHub fetch error: {str(e)}"
 
@@ -225,23 +229,38 @@ Respond strictly in this JSON format without markdown wrapping:
 
             raw_res = gl.nondet.exec_prompt(prompt, response_format="json")
             res_dict = raw_res if isinstance(raw_res, dict) else json.loads(str(raw_res))
-            res_dict["fetch_error"] = False
+            res_dict["fetch_error"] = fetch_error
             return res_dict
 
         def leader_fn() -> str:
             eval_data = _fetch_and_evaluate()
             
-            results = eval_data.get("criteria_results", [])
-            if not isinstance(results, list):
-                results = []
+            raw_results = eval_data.get("criteria_results", [])
+            if not isinstance(raw_results, list):
+                raw_results = []
             
-            met_count = sum(1 for r in results if isinstance(r, dict) and r.get("met") is True)
-            
-            decision = str(eval_data.get("decision", "INSUFFICIENT_EVIDENCE")).upper()
-            if decision not in ("APPROVED", "REJECTED", "INSUFFICIENT_EVIDENCE"):
-                decision = "INSUFFICIENT_EVIDENCE"
+            results = []
+            for i, r in enumerate(raw_results):
+                if not isinstance(r, dict):
+                    continue
+                req_idx = r.get("requirement_index")
+                if req_idx != i + 1:
+                    continue
+                met = r.get("met")
+                if not isinstance(met, bool) or type(met) is not bool:
+                    continue
+                reasoning = r.get("reasoning")
+                if not isinstance(reasoning, str):
+                    continue
+                results.append(r)
                 
-            if decision == "APPROVED" and met_count < total_reqs:
+            met_count = sum(1 for r in results if r["met"] is True)
+            
+            if eval_data.get("fetch_error") or len(results) != total_reqs:
+                decision = "INSUFFICIENT_EVIDENCE"
+            elif met_count == total_reqs:
+                decision = "APPROVED"
+            else:
                 decision = "REJECTED"
             
             return json.dumps({
@@ -261,35 +280,60 @@ Respond strictly in this JSON format without markdown wrapping:
                 if not isinstance(leader_data, dict):
                     return False
 
-                # Validator independently evaluates
-                val_data = _fetch_and_evaluate()
-                
-                val_results = val_data.get("criteria_results", [])
-                if not isinstance(val_results, list):
-                    val_results = []
-                val_met_array = [bool(r.get("met")) for r in val_results if isinstance(r, dict)]
-                
-                leader_results = leader_data.get("criteria_results", [])
-                leader_met_array = [bool(r.get("met")) for r in leader_results if isinstance(r, dict)]
-                
-                # Check consensus equivalence (strict match on array of booleans)
-                if val_met_array != leader_met_array:
+                leader_results = leader_data.get("criteria_results")
+                if not isinstance(leader_results, list) or len(leader_results) != total_reqs:
                     return False
-                
-                if leader_data.get("criteria_total") != total_reqs:
-                    return False
+                    
+                leader_met_array = []
+                for i, r in enumerate(leader_results):
+                    if not isinstance(r, dict):
+                        return False
+                    if r.get("requirement_index") != i + 1:
+                        return False
+                    met = r.get("met")
+                    if not isinstance(met, bool) or type(met) is not bool:
+                        return False
+                    if not isinstance(r.get("reasoning"), str):
+                        return False
+                    leader_met_array.append(met)
                     
                 met_count = sum(1 for m in leader_met_array if m)
                 if leader_data.get("criteria_met") != met_count:
                     return False
+                if leader_data.get("criteria_total") != total_reqs:
+                    return False
                     
-                expected_decision = str(val_data.get("decision", "INSUFFICIENT_EVIDENCE")).upper()
-                if expected_decision not in ("APPROVED", "REJECTED", "INSUFFICIENT_EVIDENCE"):
-                    expected_decision = "INSUFFICIENT_EVIDENCE"
-                if expected_decision == "APPROVED" and met_count < total_reqs:
-                    expected_decision = "REJECTED"
+                if leader_data.get("decision") not in ("APPROVED", "REJECTED", "INSUFFICIENT_EVIDENCE"):
+                    return False
+                if leader_data.get("decision") == "APPROVED" and met_count != total_reqs:
+                    return False
+                if leader_data.get("decision") == "REJECTED" and met_count == total_reqs:
+                    return False
+
+                val_data = _fetch_and_evaluate()
+                if val_data.get("fetch_error"):
+                    val_met_array = [False] * total_reqs
+                else:
+                    val_results = val_data.get("criteria_results", [])
+                    if not isinstance(val_results, list) or len(val_results) != total_reqs:
+                        val_met_array = [False] * total_reqs
+                    else:
+                        val_met_array = []
+                        for i, r in enumerate(val_results):
+                            if isinstance(r, dict) and r.get("requirement_index") == i + 1 and type(r.get("met")) is bool:
+                                val_met_array.append(r.get("met"))
+                            else:
+                                val_met_array.append(False)
+                                
+                        if len(val_met_array) != total_reqs:
+                            val_met_array = [False] * total_reqs
+                            
+                if leader_met_array != val_met_array:
+                    return False
                     
-                if leader_data.get("decision") != expected_decision:
+                val_expected_decision = "INSUFFICIENT_EVIDENCE" if val_data.get("fetch_error") else ("APPROVED" if sum(val_met_array) == total_reqs else "REJECTED")
+                
+                if leader_data.get("decision") != val_expected_decision:
                     return False
 
                 return True
@@ -309,7 +353,6 @@ Respond strictly in this JSON format without markdown wrapping:
         agreement.verdict_summary = verdict_data["summary"]
         agreement.verdict_criteria_met = i32(verdict_data["criteria_met"])
         agreement.verdict_criteria_total = i32(verdict_data["criteria_total"])
-        agreement.verdict_reason = ""
         agreement.verdict_details = json.dumps(verdict_data.get("criteria_results", []))
         agreement.finalized_at = now
 
@@ -338,7 +381,6 @@ Respond strictly in this JSON format without markdown wrapping:
             "verdict_summary": ag.verdict_summary,
             "verdict_criteria_met": int(ag.verdict_criteria_met),
             "verdict_criteria_total": int(ag.verdict_criteria_total),
-            "verdict_reason": ag.verdict_reason,
             "verdict_details": ag.verdict_details,
             "created_at": int(ag.created_at),
             "submitted_at": int(ag.submitted_at),
@@ -357,7 +399,6 @@ Respond strictly in this JSON format without markdown wrapping:
             "summary": ag.verdict_summary,
             "criteria_met": int(ag.verdict_criteria_met),
             "criteria_total": int(ag.verdict_criteria_total),
-            "reason": ag.verdict_reason,
             "details": ag.verdict_details,
             "finalized_at": int(ag.finalized_at),
         }

@@ -124,10 +124,10 @@ def test_evaluation_approved_happy_path(direct_vm, direct_deploy, direct_alice, 
         json.dumps({
             "decision": "APPROVED",
             "criteria_results": [
-                {"met": True, "reasoning": "Found responsive layout"},
-                {"met": True, "reasoning": "Found 5 sections"},
-                {"met": True, "reasoning": "Found working form"},
-                {"met": True, "reasoning": "Found public deployment"}
+                {"requirement_index": 1, "met": True, "reasoning": "Found responsive layout"},
+                {"requirement_index": 2, "met": True, "reasoning": "Found 5 sections"},
+                {"requirement_index": 3, "met": True, "reasoning": "Found working form"},
+                {"requirement_index": 4, "met": True, "reasoning": "Found public deployment"}
             ],
             "summary": "All 4 criteria are clearly met based on deployed website and GitHub repo."
         }),
@@ -173,9 +173,9 @@ def test_evaluation_rejected_partial_evidence(direct_vm, direct_deploy, direct_a
         json.dumps({
             "decision": "REJECTED",
             "criteria_results": [
-                {"met": True, "reasoning": "Found responsive design"},
-                {"met": False, "reasoning": "No contact form"},
-                {"met": False, "reasoning": "No database integration"}
+                {"requirement_index": 1, "met": True, "reasoning": "Found responsive design"},
+                {"requirement_index": 2, "met": False, "reasoning": "No contact form"},
+                {"requirement_index": 3, "met": False, "reasoning": "No database integration"}
             ],
             "summary": "Database integration and working contact form are missing."
         }),
@@ -208,7 +208,7 @@ def test_evaluation_insufficient_evidence_unreachable_url(direct_vm, direct_depl
         json.dumps({
             "decision": "INSUFFICIENT_EVIDENCE",
             "criteria_results": [
-                {"met": False, "reasoning": "Unreachable"}
+                {"requirement_index": 1, "met": False, "reasoning": "Unreachable"}
             ],
             "summary": "Target site returned 404 Not Found."
         }),
@@ -267,8 +267,8 @@ def test_prompt_injection_resistance(direct_vm, direct_deploy, direct_alice, dir
         json.dumps({
             "decision": "REJECTED",
             "criteria_results": [
-                {"met": False, "reasoning": "No mobile layout"},
-                {"met": False, "reasoning": "No payment gateway"}
+                {"requirement_index": 1, "met": False, "reasoning": "No mobile layout"},
+                {"requirement_index": 2, "met": False, "reasoning": "No payment gateway"}
             ],
             "summary": "Content contains adversarial prompt injection text without requested store features."
         }),
@@ -296,7 +296,7 @@ def test_finalized_agreement_cannot_be_re_evaluated(direct_vm, direct_deploy, di
         json.dumps({
             "decision": "APPROVED",
             "criteria_results": [
-                {"met": True, "reasoning": "Met"}
+                {"requirement_index": 1, "met": True, "reasoning": "Met"}
             ],
             "summary": "Met"
         }),
@@ -309,7 +309,101 @@ def test_finalized_agreement_cannot_be_re_evaluated(direct_vm, direct_deploy, di
     # Trying to evaluate again must fail
     with pytest.raises(Exception, match="Cannot evaluate agreement in status 'APPROVED'"):
         contract.evaluate_submission(0)
-def test_validator_rejects_disagreement(direct_vm, direct_deploy, direct_alice, direct_bob):
+    # The old test body is replaced since we rewrote it in test_validator_edge_cases
+
+def test_validator_edge_cases(direct_vm, direct_deploy, direct_alice, direct_bob):
+    import json
+    
+    direct_vm.sender = direct_alice
+    contract = direct_deploy("contracts/proof_judge.py")
+
+    contract.create_agreement("Task", "Desc", ["Req 1", "Req 2"], 24)
+    direct_vm.sender = direct_bob
+    contract.submit_work(0, "https://example.com", "", "Done")
+
+    direct_vm.mock_web(r".*", {"status": 200, "body": "Evidence"})
+    direct_vm.mock_llm(
+        r".*",
+        json.dumps({
+            "decision": "APPROVED",
+            "criteria_results": [
+                {"requirement_index": 1, "met": True, "reasoning": "Yes"},
+                {"requirement_index": 2, "met": True, "reasoning": "Yes"}
+            ],
+            "summary": "Met"
+        }),
+    )
+    contract.evaluate_submission(0)
+    
+    def check_payload(payload):
+        return direct_vm.run_validator(leader_result=json.dumps(payload))
+
+    base = {
+        "decision": "APPROVED",
+        "criteria_met": 2,
+        "criteria_total": 2,
+        "summary": "Met",
+        "criteria_results": [
+            {"requirement_index": 1, "met": True, "reasoning": "Yes"},
+            {"requirement_index": 2, "met": True, "reasoning": "Yes"}
+        ]
+    }
+    
+    assert check_payload(base) is True
+
+    payload = base.copy()
+    payload["criteria_results"] = [
+        {"requirement_index": 1, "met": "false", "reasoning": "Yes"},
+        {"requirement_index": 2, "met": True, "reasoning": "Yes"}
+    ]
+    assert check_payload(payload) is False
+
+    payload = base.copy()
+    payload["criteria_results"] = [
+        {"requirement_index": 1, "met": True, "reasoning": "Yes"}
+    ]
+    assert check_payload(payload) is False
+
+    payload = base.copy()
+    payload["criteria_results"] = [
+        {"requirement_index": 1, "met": True, "reasoning": "Yes"},
+        {"requirement_index": 2, "met": True, "reasoning": "Yes"},
+        {"requirement_index": 3, "met": True, "reasoning": "Yes"}
+    ]
+    assert check_payload(payload) is False
+
+    payload = base.copy()
+    payload["criteria_results"] = [
+        {"requirement_index": 1, "met": True, "reasoning": "Yes"},
+        {"requirement_index": 3, "met": True, "reasoning": "Yes"}
+    ]
+    assert check_payload(payload) is False
+
+    payload = base.copy()
+    payload["criteria_results"] = [
+        {"requirement_index": 1, "met": 1, "reasoning": "Yes"},
+        {"requirement_index": 2, "met": True, "reasoning": "Yes"}
+    ]
+    assert check_payload(payload) is False
+
+    payload = base.copy()
+    payload["criteria_met"] = 1
+    assert check_payload(payload) is False
+
+    payload = base.copy()
+    payload["decision"] = "APPROVED"
+    payload["criteria_met"] = 1
+    payload["criteria_results"] = [
+        {"requirement_index": 1, "met": False, "reasoning": "No"},
+        {"requirement_index": 2, "met": True, "reasoning": "Yes"}
+    ]
+    assert check_payload(payload) is False
+
+    payload = base.copy()
+    payload["decision"] = "REJECTED"
+    assert check_payload(payload) is False
+
+def test_malformed_validator_response(direct_vm, direct_deploy, direct_alice, direct_bob):
     import json
     
     direct_vm.sender = direct_alice
@@ -324,46 +418,31 @@ def test_validator_rejects_disagreement(direct_vm, direct_deploy, direct_alice, 
         r".*",
         json.dumps({
             "decision": "APPROVED",
-            "criteria_results": [{"met": True, "reasoning": "Met"}],
+            "criteria_results": [
+                {"requirement_index": 1, "met": True, "reasoning": "Yes"}
+            ],
             "summary": "Met"
         }),
     )
-
     contract.evaluate_submission(0)
-    
-    class FakeReturn:
-        def __init__(self, calldata):
-            self.calldata = calldata
-            
-    leader_fake = FakeReturn(json.dumps({
-        "decision": "APPROVED",
-        "criteria_met": 1,
-        "criteria_total": 1,
-        "summary": "Met",
-        "criteria_results": [{"met": True, "reasoning": "Met"}]
-    }))
     
     direct_vm.clear_mocks()
     direct_vm.mock_web(r".*", {"status": 200, "body": "Evidence"})
     direct_vm.mock_llm(
         r".*",
         json.dumps({
-            "decision": "REJECTED",
-            "criteria_results": [{"met": False, "reasoning": "Not Met"}],
-            "summary": "Not Met"
+            "garbage": "data"
         }),
     )
     
-    # Wait, the contract uses isinstance(leader_res, gl.vm.Return)
-    # We must pass the real gl.vm.Return
-    from genlayer import gl
-    real_leader_res = gl.vm.Return(json.dumps({
+    leader_payload = {
         "decision": "APPROVED",
         "criteria_met": 1,
         "criteria_total": 1,
         "summary": "Met",
-        "criteria_results": [{"met": True, "reasoning": "Met"}]
-    }))
+        "criteria_results": [
+            {"requirement_index": 1, "met": True, "reasoning": "Yes"}
+        ]
+    }
     
-    result = direct_vm.run_validator(leader_result=real_leader_res)
-    assert result is False
+    assert direct_vm.run_validator(leader_result=json.dumps(leader_payload)) is False

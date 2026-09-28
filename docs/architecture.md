@@ -77,11 +77,11 @@ flowchart TD
   2. Retrieves GitHub source URL if provided.
   3. Prepares structured prompt isolating untrusted evidence in dedicated tags.
   4. Invokes `gl.nondet.exec_prompt(..., response_format='json')`.
-  5. Parses JSON output into deterministic verdict record (`decision`, `criteria_met`, `criteria_total`, `reason`, `summary`).
+  5. Parses JSON output into deterministic verdict record (`decision`, `criteria_met`, `criteria_total`, `summary`, `criteria_results`).
 - `validator_fn`:
-  1. Validates that leader return payload adheres to structural requirements.
-  2. Independently validates evidence accessibility or criterion bounds.
-  3. Ensures decision mathematically corresponds to criteria outcomes (e.g. `criteria_met == criteria_total` for `APPROVED`).
+  1. Validates that leader return payload adheres to structural requirements and schema types (booleans).
+  2. Independently validates evidence accessibility and criteria bounds.
+  3. Ensures decision mathematically corresponds to criteria outcomes (e.g. `criteria_met == criteria_total` for `APPROVED`, all `met` are booleans).
 
 ### 3. Frontend Architecture (`frontend/`)
 - Framework: Next.js (App Router), React, TypeScript, Tailwind CSS.

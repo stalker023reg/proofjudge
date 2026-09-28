@@ -8,12 +8,12 @@ The evaluation lifecycle transforms unstructured web evidence into a determinist
 2. **Sanitization**: Web text is sanitized and bounded (max 4,000 characters) to prevent token overflow.
 3. **Structured Prompt Execution**: `gl.nondet.exec_prompt` processes the isolated data in `response_format='json'`.
 4. **Deterministic Validation**: The output is validated to ensure:
-   - JSON keys: `decision`, `criteria_met`, `criteria_total`, `summary`, `criteria`
+   - JSON keys: `decision`, `criteria_met`, `criteria_total`, `summary`, `criteria_results`
    - Allowed decisions: `APPROVED`, `REJECTED`, `INSUFFICIENT_EVIDENCE`
    - Decision rule:
-     - `APPROVED` requires `criteria_met == criteria_total` and `criteria_total > 0`.
-     - `INSUFFICIENT_EVIDENCE` when evidence URL is inaccessible or content is empty.
-     - `REJECTED` when at least one requirement is not satisfied.
+     - `APPROVED` requires all criteria to be `met: True`.
+     - `INSUFFICIENT_EVIDENCE` when evidence URL is inaccessible or returns an HTTP error.
+     - `REJECTED` when at least one requirement is `met: False`.
 
 ---
 
@@ -48,19 +48,15 @@ Your duty is to verify whether the submitted evidence satisfies the agreement re
 </untrusted_worker_explanation>
 
 Respond ONLY with a JSON object in this format:
-{
   "decision": "APPROVED" | "REJECTED" | "INSUFFICIENT_EVIDENCE",
-  "criteria_met": <integer>,
-  "criteria_total": <integer>,
-  "summary": "<short 1-2 sentence assessment>",
-  "criteria": [
+  "criteria_results": [
     {
-      "id": 1,
-      "requirement": "<requirement text>",
-      "status": "MET" | "NOT_MET" | "UNKNOWN",
-      "reason": "<short reason>"
+      "requirement_index": <integer>,
+      "met": <boolean>,
+      "reasoning": "<short reason>"
     }
-  ]
+  ],
+  "summary": "<short 1-2 sentence assessment>"
 }
 ```
 
@@ -70,10 +66,10 @@ Respond ONLY with a JSON object in this format:
 
 In GenLayer, validators execute `validator_fn(leader_res)`:
 - Confirms `isinstance(leader_res, gl.vm.Return)`.
-- Verifies return type is a valid serialized verdict dictionary.
-- Checks that `criteria_met` and `criteria_total` match the number of requirements defined in the agreement.
-- Confirms the logical consistency:
-  - If `decision == "APPROVED"`, then `criteria_met == criteria_total` and all criteria items have `status == "MET"`.
-  - If `decision == "REJECTED"`, then `criteria_met < criteria_total`.
-  - If evidence fetch was blocked or empty, decision is `INSUFFICIENT_EVIDENCE`.
-- Returns `True` to accept leader's block proposal or `False` to reject.
+- Verifies return type is a valid serialized JSON dict.
+- Independently evaluates the payload and verifies the criteria count matches the requirements length.
+- Verifies exact strict schema validation (`requirement_index`, `met` as strict boolean, string `reasoning`).
+- Verifies the `criteria_met` count is calculated correctly from `criteria_results`.
+- Independently fetches the web evidence again.
+- Compares the re-evaluated decision deterministically against the leader's decision.
+- Rejects if the leader bypasses any rule (e.g. attempting to return `APPROVED` while a requirement is not met, or missing requirements).
